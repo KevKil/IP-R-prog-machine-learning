@@ -1,0 +1,247 @@
+---
+title: "R Programming week 2 Unsupervised learning"
+author: "Kevin Kilonzo"
+date: "29/01/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# 
+## DEFINING THE QUESTION
+### a) Specifying the question
+Perform machine learning on the dataset below
+
+### b) Defining the metric of success
+To perform machine learning on the dataset below
+
+
+### c) Understanding the context
+Kira Plastinina is a Russian brand that is sold through a defunct chain of retail stores in Russia, Ukraine, Kazakhstan, Belarus, China, Philippines, and Armenia. The brand’s Sales and Marketing team would like to understand their customer’s behavior from data that they have collected over the past year. More specifically, they would like to learn the characteristics of customer groups.
+### d) Recoding the experimental design
+1. Defining the question
+    2. Instaling and loading the libraries
+    3. Loading the dataset
+    4. Cleaning the dataset
+    5. Performing univariate analysis
+    6. Performing bivariate analysis
+    7. Performing unsupervised learning
+    8. Performing Supervised Learning
+    
+### e) Data relevance
+The dataset consists of 10 numerical and 8 categorical attributes. The 'Revenue' attribute can be used as the class label.
+* "Administrative", "Administrative Duration", "Informational", "Informational Duration", "Product Related" and "Product Related Duration" represents the number of different types of pages visited by the visitor in that session and total time spent in each of these page categories. The values of these features are derived from the URL information of the pages visited by the user and updated in real-time when a user takes an action, e.g. moving from one page to another. 
+* The "Bounce Rate", "Exit Rate" and "Page Value" features represent the metrics measured by "Google Analytics" for each page in the e-commerce site. 
+The value of the "Bounce Rate" feature for a web page refers to the percentage of visitors who enter the site from that page and then leave ("bounce") without triggering any other requests to the analytics server during that session. 
+The value of the "Exit Rate" feature for a specific web page is calculated as for all pageviews to the page, the percentage that was the last in the session.
+The "Page Value" feature represents the average value for a web page that a user visited before completing an e-commerce transaction. 
+*The "Special Day" feature indicates the closeness of the site visiting time to a specific special day (e.g. Mother’s Day, Valentine's Day) in which the sessions are more likely to be finalized with the transaction. The value of this attribute is determined by considering the dynamics of e-commerce such as the duration between the order date and delivery date. For example, for Valentina’s day, this value takes a nonzero value between February 2 and February 12, zero before and after this date unless it is close to another special day, and its maximum value of 1 on February 8. 
+* The dataset also includes the operating system, browser, region, traffic type, visitor type as returning or new visitor, a Boolean value indicating whether the date of the visit is weekend, and month of the year.
+
+## LOADING PACKAGES
+```{r}
+library("data.table") # loads and manipulates the database
+library(tidyverse) # loads and manipulates the database but with better visualisations
+library(dbscan) # performs density based clustering in unsupervised learning
+```
+
+## LOADing AND CHECKING THE DATASET
+```{r}
+df <- fread("http://bit.ly/EcommerceCustomersDataset")
+
+# Preview of the dataset
+## First 6 records
+head(df)
+
+## Last 6 records
+tail(df)
+
+# Showing the complete dataframe
+view(df)
+```
+```{r}
+# Check the number of rows and columns
+dim(df) # rows  then  columns
+
+# Check the data types of the columns
+str(df)
+
+# Checking column names
+colnames(df)
+```
+
+## CLEANING THE DATASET
+```{r}
+# Getting statistical summary of the data
+summary(df)
+
+#Convert column names to lowercase
+names(df) <- tolower(colnames(df))
+
+# Checking null values
+colSums(is.na(df))
+## drop missing values since they represent less than 10 % of the data
+df <- na.omit(df)
+
+# Checking for duplicates
+df[duplicated(df),]
+## drop duplicates since they are less than 10% of data
+df <- unique(df)
+
+# Convert months to numerical
+df$month <-match(df$month,month.abb)
+df$month <- as.integer(df$month)
+#convert logical columns to numeric
+df$weekend <- as.integer(df$weekend)
+df$revenue <- as.integer(df$revenue)
+
+
+```
+```{r}
+# Checking for outliers
+## getting the numeric columns
+contvar <- df %>% select(administrative,administrative_duration,informational,informational_duration,productrelated,bouncerates,     exitrates,pagevalues,specialday,productrelated_duration)
+par(mfrow = c(1,3))
+invisible(lapply(1:ncol(contvar), function(i) boxplot(contvar[,..i], main = paste(colnames(contvar[,..i])))))
+```
+The outliers are expected in such a dataset and will not be removed
+## UNIVARIATE ANALYSIS
+
+
+```{r}
+op <- par(mfrow=c(1,1))  # to put histograms side by side
+lapply(seq(contvar), function(x) 
+  hist(x=contvar[[x]], xlab=names(contvar)[x], main=paste("Histogram",colnames(contvar[,..x]))))
+par(op)  # restore
+```
+
+* Most of the users did not spend ant time in the administrative, informational or produce related pages
+* Most of the users spent between 0 and 166 seconds on the administrative and informational pages and between 166-333 seconds for produce related pages
+* Most of the users did not record an ecommerce transaction
+* Most of the days were not special days
+
+```{r}
+# Getting the numeric categorical variables
+catvar <- df %>% select(month,specialday,operatingsystems,browser,region,traffictype,weekend,revenue,specialday)
+op <- par(mfrow=c(1,1))  # to put histograms side by side
+lapply(seq(catvar), function(x) 
+  hist(x=catvar[[x]], xlab=names(catvar)[x], main=paste("Countplot",colnames(catvar[,..x]))))
+par(op)
+```
+* Most popular month was feb
+* Most popular operating system was 2
+* Most popular browser was 1
+* Most popular region was 1
+* Most common region was 1
+* Most of the users were in weekdays
+* Most of the customers did not buy any products
+
+
+## BIVARIATE ANALYSIS
+```{r}
+str(df)
+nums <- select_if(df, is.numeric)
+cor(contvar)
+library("corrplot")
+par(mfrow=c(1,1))
+corrplot(cor(contvar), method = "number", order = 'hclust')
+
+```
+* Exit rates and bounce rates are highly positively correlated
+* Information and information duration are highly positively correlated
+* Product and product duration are highly positively correlated
+* Product related is positively correlated with administrative
+* administrative and administrative duration are highly positively correlated
+
+## FEATURE ENGINEERING
+```{r}
+# Convert visitor type to numerical
+df$visitortype <- as.factor(df$visitortype) # convert to factor
+df$visitortype <- as.numeric(df$visitortype) # convert to numeric
+
+# Drop class column revenue for supervised learning
+df_1 <- df[,-"revenue"]
+head(df_1)
+# Normalise the columns
+## set up the normalising function
+normalize <- function(x){
+  return ((x-min(x)) / (max(x)-min(x)))
+}
+## Normalise the columns
+df.norm<- as.data.frame(lapply(df_1, normalize)) 
+df.norm <- df.norm[,-11]
+```
+
+
+## UNSUPERVISED LEARNING
+### K MEANS
+```{r}
+# Applying the K-means clustering algorithm with no. of centroids(k)=2
+result<- kmeans(df.norm,2) 
+# Getting the cluster vector that shows the cluster where each record falls
+result$cluster
+# Verifying the results of clustering
+par(mfrow = c(2,2), mar = c(5,4,2,2))
+# Plotting to see how col1 and col2 data points have been distributed in clusters
+plot(df.norm[c(1,2)], col = result$cluster)
+# Plotting to see how col2 and col3 data points have been distributed in clusters
+plot(df.norm[c(2,3)], col = result$cluster)
+# Plotting to see how col3 and col4 points have been distributed in clusters
+plot(df.norm[c(3,4)], col = result$cluster)
+
+# Confusion matrix of clusters
+table(result$cluster, df$revenue)
+
+```
+### Hierachical clustering
+```{r}
+# First we use the dist() function to compute the Euclidean distance between observations, 
+d <- dist(df.norm, method = "euclidean")
+# We then hierarchical clustering using the Ward's method
+res.hc <- hclust(d, method = "ward.D2" )
+# Lastly, we plot the obtained dendrogram
+plot(res.hc, cex = 0.6, hang = -1)
+# Split dendogram into clusters
+cut_avg <- cutree(res.hc, k = 2)
+# Create dataframe for results
+df_cl <- mutate(df.norm, cluster = cut_avg)
+count(df_cl,cluster)
+# Creating a confusion matrix for the result
+table(df_cl$cluster, df$revenue)
+
+```
+
+* Check on dimensionality reduction and removing correlated features to improve the model
+## SUPERVISED LEARNING
+### svm
+```{r}
+library(caret)
+df_sup <- df.norm
+df_sup$revenue <- df$revenue
+# Next we split the data into training set and testing set. 
+intrain <- createDataPartition(y = df$revenue, p= 0.7, list = FALSE)
+training <- df_sup[intrain,]
+testing <- df_sup[-intrain,]
+# COnverting the target variable to a factor
+training[["revenue"]] = factor(training[["revenue"]])
+
+# Modelling
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+svm_Linear <- train(revenue ~., data = training, method = "svmLinear",
+trControl=trctrl,
+preProcess = c("center", "scale"),
+tuneLength = 10)
+# Checking the results
+svm_Linear
+# We can use the predict() method for predicting results as shown below. 
+ 
+test_pred <- predict(svm_Linear, newdata = testing)
+test_pred
+# Now checking for our accuracy of our model by using a confusion matrix 
+ 
+confusionMatrix(table(test_pred, testing$revenue))
+
+```
+* Check on dimensionality reduction and removing correlated features to improve the model
